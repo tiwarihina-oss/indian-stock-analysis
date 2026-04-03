@@ -2,20 +2,33 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="AI Indian Stock Signal", layout="wide")
+st.set_page_config(page_title="Pro Indian Market Suite", layout="wide", initial_sidebar_state="expanded")
 
-st.title("📈 AI Indian Stock Signal Pro")
-st.caption("Stable Version - Powered by Real-time NSE/BSE Data")
+# Custom CSS for a clean look
+st.markdown("""
+    <style>
+    .metric-card { background-color: #1e2130; border-radius: 10px; padding: 15px; border: 1px solid #333; text-align: center; }
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
+    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #0e1117; border-radius: 5px; color: white; }
+    .stTabs [aria-selected="true"] { background-color: #ff4b4b; color: white; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- INDICATOR CALCULATIONS (Manual to avoid errors) ---
-def calculate_indicators(df):
-    # Calculate EMA
+# --- UTILITY FUNCTIONS ---
+def get_clean_data(ticker, period="1y", interval="1d"):
+    data = yf.download(ticker, period=period, interval=interval, progress=False)
+    if not data.empty and isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    return data
+
+def calculate_technicals(df):
+    # EMA
     df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
     df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
-    
-    # Calculate RSI
+    # RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -23,90 +36,102 @@ def calculate_indicators(df):
     df['RSI'] = 100 - (100 / (1 + rs))
     return df
 
-# --- SESSION STATE FOR WATCHLIST ---
-if 'watchlist' not in st.session_state:
-    st.session_state.watchlist = ['RELIANCE.NS', 'TCS.NS', 'INFY.NS']
+# --- APP LAYOUT ---
+st.title("🏹 Indian Market Intelligence")
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.header("🔍 Search Stock")
-    ticker_input = st.text_input("Symbol (e.g., SBIN, TATAMOTORS)").upper()
-    exch = st.radio("Exchange", ["NSE", "BSE"])
-    
-    if st.button("Add to Watchlist"):
-        if ticker_input:
-            suffix = ".NS" if exch == "NSE" else ".BO"
-            full_ticker = ticker_input + suffix
-            if full_ticker not in st.session_state.watchlist:
-                st.session_state.watchlist.append(full_ticker)
-                st.rerun()
+tabs = st.tabs(["📊 Market Dashboard", "🔍 AI Stock Analyzer"])
 
-    selected_stock = st.selectbox("Select from Watchlist", st.session_state.watchlist)
+# ==========================================
+# TAB 1: MARKET DASHBOARD
+# ==========================================
+with tabs[0]:
+    st.subheader("Market Overview (NIFTY 50)")
     
-    if st.button("Remove Selected"):
-        st.session_state.watchlist.remove(selected_stock)
+    # Nifty 50 Chart
+    nifty_data = get_clean_data("^NSEI", period="1mo", interval="15m")
+    if not nifty_data.empty:
+        fig_nifty = go.Figure()
+        fig_nifty.add_trace(go.Scatter(x=nifty_data.index, y=nifty_data['Close'], fill='tozeroy', line=dict(color='#00ffcc', width=2), name="Nifty 50"))
+        fig_nifty.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
+        st.plotly_chart(fig_nifty, use_container_width=True)
+
+    st.divider()
+    st.subheader("Sector Performance (%)")
+    
+    # Sector List
+    sectors = {
+        "Nifty Bank": "^NSEBANK",
+        "Nifty IT": "^CNXIT",
+        "Nifty Pharma": "^CNXPHARMA",
+        "Nifty Auto": "^CNXAUTO",
+        "Nifty FMCG": "^CNXFMCG",
+        "Nifty Metal": "^CNXMETAL"
+    }
+    
+    # Display Sectors in Columns
+    cols = st.columns(len(sectors))
+    for i, (name, sym) in enumerate(sectors.items()):
+        s_data = yf.download(sym, period="2d", interval="1d", progress=False)
+        if len(s_data) >= 2:
+            if isinstance(s_data.columns, pd.MultiIndex): s_data.columns = s_data.columns.get_level_values(0)
+            change = ((s_data['Close'].iloc[-1] - s_data['Close'].iloc[-2]) / s_data['Close'].iloc[-2]) * 100
+            color = "inverse" if change < 0 else "normal"
+            cols[i].metric(name, f"{round(float(s_data['Close'].iloc[-1]), 1)}", f"{round(float(change), 2)}%", delta_color=color)
+
+# ==========================================
+# TAB 2: AI ANALYZER
+# ==========================================
+with tabs[1]:
+    # Sidebar within Tab 2 logic
+    if 'watchlist' not in st.session_state:
+        st.session_state.watchlist = ['RELIANCE.NS', 'TCS.NS', 'SBIN.NS', 'HDFCBANK.NS']
+
+    st.sidebar.header("Navigation")
+    new_stock = st.sidebar.text_input("Quick Add (e.g. INFY)").upper()
+    if st.sidebar.button("➕ Add"):
+        if new_stock:
+            st.session_state.watchlist.append(f"{new_stock}.NS")
+            st.rerun()
+
+    current_stock = st.sidebar.selectbox("Select Target Stock", st.session_state.watchlist)
+    if st.sidebar.button("🗑️ Remove Selected"):
+        st.session_state.watchlist.remove(current_stock)
         st.rerun()
 
-# --- MAIN APP LOGIC ---
-if selected_stock:
-    try:
-        # Fetch Data
-        data = yf.download(selected_stock, period="1y", interval="1d", progress=False)
-        
-        if data.empty:
-            st.error("No data found. Please check the ticker symbol.")
-        else:
-            # Clean data (fix for yfinance multi-index)
-            if isinstance(data.columns, pd.MultiIndex):
-                data.columns = data.columns.get_level_values(0)
-            
-            # Calculate Technicals
-            df = calculate_indicators(data)
-            
-            # Get latest values for AI Signal
-            last_row = df.iloc[-1]
-            prev_row = df.iloc[-2]
-            curr_price = float(last_row['Close'])
-            rsi_val = float(last_row['RSI'])
-            ema20 = float(last_row['EMA20'])
-            ema50 = float(last_row['EMA50'])
+    # Analysis Section
+    if current_stock:
+        with st.spinner(f"AI is analyzing {current_stock}..."):
+            data = get_clean_data(current_stock)
+            if not data.empty:
+                df = calculate_technicals(data)
+                last = df.iloc[-1]
+                price = round(float(last['Close']), 2)
+                rsi = float(last['RSI'])
+                
+                # Signal Logic
+                signal, s_color = "HOLD", "#f0f0f0"
+                if rsi < 38: signal, s_color = "BUY", "#00ff00"
+                elif rsi > 68: signal, s_color = "SELL", "#ff4b4b"
+                
+                target = round(price * 1.05, 2) if signal != "SELL" else round(price * 0.95, 2)
+                sl = round(price * 0.97, 2) if signal != "SELL" else round(price * 1.03, 2)
 
-            # AI Signal Logic
-            signal = "HOLD"
-            color = "#f0f0f0" # gray
-            suggestion = "Market is neutral. Avoid fresh entry."
+                # UI Display
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Live Price", f"₹{price}")
+                c2.markdown(f"### <span style='color:{s_color}'>{signal}</span>", unsafe_allow_html=True)
+                c3.metric("AI Target", f"₹{target}")
+                c4.metric("Stop Loss", f"₹{sl}")
 
-            if rsi_val < 35 or (prev_row['EMA20'] < prev_row['EMA50'] and ema20 > ema50):
-                signal = "BUY"
-                color = "#00FF00" # green
-                suggestion = "Bullish momentum detected. Price is showing strength."
-            elif rsi_val > 70 or (prev_row['EMA20'] > prev_row['EMA50'] and ema20 < ema50):
-                signal = "SELL"
-                color = "#FF4B4B" # red
-                suggestion = "Overbought conditions. High risk of profit booking."
+                st.success(f"**AI Logic:** RSI at {round(rsi, 2)}. " + 
+                          ("Momentum looks bullish." if signal=="BUY" else "High overbought risk." if signal=="SELL" else "Wait for trend."))
 
-            # Entry/Target/SL
-            entry_price = round(curr_price, 2)
-            target = round(entry_price * 1.05, 2) if signal != "SELL" else round(entry_price * 0.95, 2)
-            stop_loss = round(entry_price * 0.97, 2) if signal != "SELL" else round(entry_price * 1.03, 2)
-
-            # Display UI
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Current Price", f"₹{entry_price}")
-            m2.markdown(f"### <span style='color:{color}'>{signal}</span>", unsafe_allow_html=True)
-            m3.metric("Target", f"₹{target}")
-            m4.metric("Stop Loss", f"₹{stop_loss}")
-
-            st.info(f"**AI Suggestion:** {suggestion}")
-
-            # Candlestick Chart
-            fig = go.Figure()
-            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"))
-            fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], name="EMA 20", line=dict(color='orange', width=1.5)))
-            fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], name="EMA 50", line=dict(color='blue', width=1.5)))
-            
-            fig.update_layout(template="plotly_dark", height=600, margin=dict(l=10, r=10, t=30, b=10), xaxis_rangeslider_visible=False)
-            st.plotly_chart(fig, use_container_width=True)
-
-    except Exception as e:
-        st.error(f"Something went wrong: {e}")
+                # Main Technical Chart
+                fig = go.Figure()
+                fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Candles"))
+                fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], name="EMA 20", line=dict(color='orange')))
+                fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], name="EMA 50", line=dict(color='blue')))
+                fig.update_layout(template="plotly_dark", height=500, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.error("Invalid symbol. Please use NSE/BSE tickers.")
