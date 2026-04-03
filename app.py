@@ -3,166 +3,148 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="StockPulse | AI Stock Intelligence", layout="wide", initial_sidebar_state="collapsed")
+# --- 1. PAGE SETUP ---
+st.set_page_config(page_title="StockPulse AI", layout="wide", initial_sidebar_state="collapsed")
 
-# --- INITIALIZE SESSION STATE FOR NAVIGATION ---
+# Navigation Logic
 if 'page' not in st.session_state:
     st.session_state.page = 'home'
 
-def go_to_dashboard():
-    st.session_state.page = 'dashboard'
+def navigate_to(page_name):
+    st.session_state.page = page_name
+    st.rerun()
 
-def go_to_home():
-    st.session_state.page = 'home'
-
-# --- SHARED STYLING (CSS) ---
+# --- 2. THE STYLING (CSS) ---
+# We use a separate block for CSS to avoid "code showing on screen" errors
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
     
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
-        background-color: #050708;
+        background-color: #050708 !important;
         color: white;
     }
 
-    /* Remove Streamlit Padding */
     .main .block-container { padding: 0; max-width: 100%; }
     header { visibility: hidden; }
-
-    /* Landing Page Styles */
-    .hero-section {
-        background: radial-gradient(circle at 80% 20%, #102a1e 0%, #050708 50%);
-        padding: 60px 10% 100px 10%;
-        min-height: 90vh;
-    }
-
-    .nav-bar {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 20px 0; margin-bottom: 60px;
-    }
     
-    .logo { font-size: 24px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
-    .logo-icon { color: #00c805; background: #00c80522; padding: 5px; border-radius: 6px; }
+    /* Hero Section Background */
+    .hero-section {
+        background: radial-gradient(circle at 90% 10%, #102a1e 0%, #050708 60%);
+        padding: 80px 8% 120px 8%;
+        min-height: 85vh;
+    }
+
+    .logo { font-size: 26px; font-weight: 800; margin-bottom: 60px; display: flex; align-items: center; gap: 10px; }
+    .logo span { color: #00c805; }
 
     .badge {
-        background: #102a1e; color: #00c805; padding: 6px 16px; border-radius: 20px;
-        font-size: 13px; font-weight: 600; border: 1px solid #1a3d2c; display: inline-block;
-        margin-bottom: 30px;
+        background: #102a1e; color: #00c805; padding: 8px 18px; border-radius: 20px;
+        font-size: 14px; font-weight: 600; border: 1px solid #1a3d2c; display: inline-block; margin-bottom: 25px;
     }
 
-    .hero-title { font-size: 72px; font-weight: 800; line-height: 1.1; margin-bottom: 30px; }
+    .hero-title { font-size: 75px; font-weight: 800; line-height: 1.1; margin-bottom: 25px; letter-spacing: -2px; }
     .green-text { color: #00c805; }
     
-    .hero-desc { color: #848e9c; font-size: 18px; max-width: 500px; line-height: 1.6; margin-bottom: 40px; }
+    .hero-desc { color: #848e9c; font-size: 19px; max-width: 550px; line-height: 1.6; margin-bottom: 45px; }
 
-    /* Buttons */
-    .primary-btn {
-        background-color: #00c805; color: #050708; border: none; padding: 14px 28px;
-        border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 10px;
+    /* Mockup Visual on the right */
+    .mockup-img {
+        width: 100%; border-radius: 24px; border: 1px solid #1e262c;
+        box-shadow: 0 40px 100px rgba(0,0,0,0.6);
     }
 
-    /* Mockup/Card on Right */
-    .mockup-container { position: relative; }
     .floating-card {
-        background: rgba(16, 22, 26, 0.8); backdrop-filter: blur(10px);
-        border: 1px solid #1e262c; border-radius: 12px; padding: 20px;
-        position: absolute; bottom: -30px; left: -50px; width: 220px;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        background: rgba(16, 22, 26, 0.9); backdrop-filter: blur(12px);
+        border: 1px solid #2b3139; border-radius: 16px; padding: 20px;
+        position: absolute; bottom: 40px; left: -40px; width: 260px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.5);
     }
 
-    /* Stats Section */
-    .stats-grid { display: flex; gap: 80px; margin-top: 80px; }
-    .stat-item h3 { font-size: 32px; font-weight: 800; margin: 0; }
-    .stat-item p { color: #848e9c; font-size: 14px; margin-top: 5px; }
+    /* Stats Row */
+    .stats-row { display: flex; gap: 100px; margin-top: 60px; }
+    .stat-box h3 { font-size: 36px; font-weight: 800; margin: 0; color: white; }
+    .stat-box p { color: #848e9c; font-size: 15px; margin-top: 4px; }
 
-    /* Dashboard Logic Styling */
-    .dash-container { padding: 40px 5%; }
+    /* Fix Streamlit Buttons to look like the design */
+    div.stButton > button {
+        background-color: #00c805 !important;
+        color: #050708 !important;
+        font-weight: 700 !important;
+        padding: 15px 40px !important;
+        border-radius: 10px !important;
+        border: none !important;
+        font-size: 18px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# PAGE 1: HOME SCREEN (LANDING)
+# PAGE 1: HOME SCREEN
 # ==========================================
 if st.session_state.page == 'home':
-    st.markdown(f"""
-    <div class="hero-section">
-        <!-- Navigation -->
-        <div class="nav-bar">
-            <div class="logo">
-                <span class="logo-icon">📈</span> StockPulse
-            </div>
-        </div>
-
-        <div style="display: flex; align-items: center; gap: 50px;">
-            <!-- Left Content -->
-            <div style="flex: 1;">
-                <div class="badge">⚡ AI-Powered Stock Analysis</div>
-                <h1 class="hero-title">Master the <span class="green-text">Indian Stock</span> Market with AI</h1>
-                <p class="hero-desc">
-                    Real-time data from Yahoo Finance, AI-generated trading signals with entry, target, and stop loss prices. 
-                    Your edge in NSE & BSE markets.
-                </p>
-            </div>
-
-            <!-- Right Mockup -->
-            <div style="flex: 1; position: relative;">
-                <img src="https://images.unsplash.com/photo-1611974717537-488439a44484?auto=format&fit=crop&q=80&w=1000" 
-                     style="width: 100%; border-radius: 20px; border: 1px solid #1e262c; opacity: 0.6;">
-                <div class="floating-card">
-                    <p style="font-size: 12px; color: #848e9c; margin: 0;">AI Signal</p>
-                    <p style="font-size: 16px; font-weight: 700; color: #00c805; margin: 5px 0;">🟢 BUY RELIANCE</p>
-                    <p style="font-size: 12px; color: white; margin: 0;">Target: 3,050 | SL: 2,780</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Stats -->
-        <div class="stats-grid">
-            <div class="stat-item"><h3>5000+</h3><p>Indian Stocks</p></div>
-            <div class="stat-item"><h3>Real-time</h3><p>Market Data</p></div>
-            <div class="stat-item"><h3>AI</h3><p>Trading Signals</p></div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Container for Hero Content
+    st.markdown('<div class="hero-section">', unsafe_allow_html=True)
     
-    # Real Streamlit Button for Navigation
-    st.columns([1, 4, 1])[1].button("Go to Dashboard ➔", on_click=go_to_dashboard, use_container_width=True)
+    # Header
+    st.markdown('<div class="logo"><span>📈</span> StockPulse</div>', unsafe_allow_html=True)
+    
+    # Left & Right Layout
+    col_left, col_right = st.columns([1.2, 1])
+    
+    with col_left:
+        st.markdown('<div class="badge">⚡ AI-Powered Stock Analysis</div>', unsafe_allow_html=True)
+        st.markdown('<h1 class="hero-title">Master the <span class="green-text">Indian Stock</span> Market with AI</h1>', unsafe_allow_html=True)
+        st.markdown('<p class="hero-desc">Real-time data from Yahoo Finance, AI-generated trading signals with entry, target, and stop loss prices. Your edge in NSE & BSE markets.</p>', unsafe_allow_html=True)
+        
+        # NAVIGATION BUTTON
+        st.button("Go to Dashboard →", on_click=lambda: navigate_to('dashboard'))
+        
+        # Stats
+        st.markdown("""
+        <div class="stats-row">
+            <div class="stat-box"><h3>5000+</h3><p>Indian Stocks</p></div>
+            <div class="stat-box"><h3>Real-time</h3><p>Market Data</p></div>
+            <div class="stat-box"><h3>AI</h3><p>Trading Signals</p></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown("""
+        <div style="position: relative;">
+            <img class="mockup-img" src="https://images.unsplash.com/photo-1611974717537-488439a44484?q=80&w=1000&auto=format&fit=crop">
+            <div class="floating-card">
+                <p style="color:#848e9c; font-size:12px; margin-bottom:5px;">AI Signal Generated</p>
+                <p style="color:#00c805; font-size:20px; font-weight:800; margin:0;">🟢 BUY RELIANCE</p>
+                <p style="color:white; font-size:14px; margin-top:5px;">Target: 3,050 | SL: 2,780</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
 # PAGE 2: DASHBOARD
 # ==========================================
 elif st.session_state.page == 'dashboard':
-    # Top Bar for Dashboard
+    # Simple Dashboard Header
     st.markdown("""
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px 5%; background: #0b0e11; border-bottom: 1px solid #1e262c;">
-            <div style="font-size: 20px; font-weight: 800; cursor: pointer;" onclick="window.location.reload()">📈 StockPulse Dashboard</div>
-        </div>
+    <div style="padding: 20px 5%; border-bottom: 1px solid #1e262c; display: flex; justify-content: space-between; align-items: center;">
+        <h2 style="margin:0;">📈 StockPulse Dashboard</h2>
+    </div>
     """, unsafe_allow_html=True)
     
-    # Simple Back Button
-    if st.button("⬅ Back to Home"):
-        go_to_home()
-        st.rerun()
-
-    # --- Your Professional Dashboard Logic ---
-    st.markdown('<div class="dash-container">', unsafe_allow_html=True)
+    st.sidebar.button("⬅ Back to Home", on_click=lambda: navigate_to('home'))
     
-    # (Placeholder for the high-end Dashboard we built in the previous step)
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown('<div style="background:#161a1e; padding:30px; border-radius:15px; border:1px solid #2b3139;"><h3>NIFTY 50</h3><h1>22,713.10</h1><p style="color:#00c805">+0.15%</p></div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown('<div style="background:#161a1e; padding:30px; border-radius:15px; border:1px solid #2b3139;"><h3>SENSEX</h3><h1>73,319.55</h1><p style="color:#00c805">+0.25%</p></div>', unsafe_allow_html=True)
-
-    st.info("💡 Pro Tip: Search for symbols like RELIANCE, SBIN, or INFY in the sidebar to generate AI signals.")
+    # --- Professional Dashboard Content ---
+    st.write("")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Nifty 50", "22,713.10", "33.70")
+    c2.metric("Sensex", "73,319.55", "185.23")
+    c3.metric("Bank Nifty", "48,950.20", "-12.40")
     
-    # Add your Stock Analyzer Sidebar here...
-    with st.sidebar:
-        st.header("🔍 Stock Analyzer")
-        search = st.text_input("Enter Ticker")
-        if search:
-            st.success(f"Analyzing {search}...")
-            # Insert previous technical analysis logic here
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.divider()
+    st.info("You are now in the AI Analysis Zone. Search for any Indian stock in the sidebar to begin.")
+    
+    # (The rest of your stock analyzer code goes here...)
