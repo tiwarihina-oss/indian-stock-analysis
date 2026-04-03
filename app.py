@@ -2,173 +2,176 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
 
-# --- SET PAGE CONFIG ---
-st.set_page_config(page_title="Indian Market Intelligence", layout="wide", initial_sidebar_state="collapsed")
+# --- PAGE SETUP ---
+st.set_page_config(page_title="Market Overview", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CUSTOM CSS FOR HIGH-END UI ---
+# --- CSS: THE "DITTO" STYLING ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #0b0e11; color: white; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     
-    /* Card Styling */
-    .metric-card {
-        background-color: #161a1e;
+    /* Background & Global */
+    .stApp { background-color: #0b0e11; font-family: 'Inter', sans-serif; color: #ffffff; }
+    header {visibility: hidden;}
+    .main .block-container { padding: 2rem; }
+
+    /* Card Layout */
+    .glass-card {
+        background: #161a1e;
         border: 1px solid #2b3139;
-        border-radius: 16px;
-        padding: 20px;
-        margin-bottom: 10px;
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 15px;
     }
-    .index-title { color: #848e9c; font-size: 14px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-    .index-value { font-size: 28px; font-weight: 700; margin: 0; }
-    .index-delta { font-size: 16px; margin-top: 4px; }
-    .positive { color: #00c805; }
-    .negative { color: #ff3b3b; }
+
+    /* Index Headers */
+    .icon-box { background: #00c8051a; border-radius: 8px; padding: 10px; display: inline-flex; align-items: center; justify-content: center; margin-right: 12px; }
+    .index-label { color: #ffffff; font-weight: 600; font-size: 14px; }
+    .index-price { font-size: 32px; font-weight: 700; margin-top: 10px; margin-bottom: 0px; }
+    .index-delta { font-size: 16px; font-weight: 500; }
+    .pct-badge { background: #00c8051a; color: #00c805; padding: 4px 10px; border-radius: 6px; font-size: 14px; font-weight: 600; float: right; }
     
-    /* Small Stat Cards */
-    .stat-card { background-color: #161a1e; border: 1px solid #21262c; border-radius: 12px; padding: 15px; height: 100%; }
-    .stat-label { color: #848e9c; font-size: 12px; margin-bottom: 5px; }
-    .stat-value { font-size: 18px; font-weight: 600; }
+    /* Small Stat Boxes */
+    .stat-label { color: #848e9c; font-size: 13px; margin-bottom: 8px; font-weight: 500; }
+    .stat-value { font-size: 22px; font-weight: 700; color: #ffffff; }
 
-    /* Sector Progress Bars */
-    .sector-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
-    .progress-bg { background-color: #2b3139; border-radius: 4px; height: 6px; width: 100%; margin-top: 8px; overflow: hidden; }
-    .progress-fill { height: 100%; border-radius: 4px; }
+    /* Time Range Buttons */
+    .time-btn-container { display: flex; gap: 10px; margin: 20px 0; }
+    .time-btn { background: transparent; border: none; color: #848e9c; font-size: 13px; font-weight: 600; cursor: pointer; padding: 5px 10px; }
+    .time-btn.active { background: #00c805; color: #0b0e11; border-radius: 6px; }
 
-    /* Buttons */
-    .stButton>button { 
-        background-color: #1e222d; border: none; color: #848e9c; border-radius: 6px; 
-        padding: 4px 12px; font-size: 12px; transition: 0.3s;
-    }
-    .stButton>button:hover { background-color: #2962ff; color: white; }
+    /* Sector Sidebar */
+    .sector-title { font-size: 18px; font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; gap: 8px;}
+    .sector-summary { color: #848e9c; font-size: 13px; margin-bottom: 25px; }
+    .sector-row { display: flex; align-items: center; margin-bottom: 20px; }
+    .sector-icon { background: #21262c; border-radius: 8px; padding: 8px; margin-right: 12px; min-width: 40px; text-align: center; }
+    .sector-info { flex-grow: 1; }
+    .sector-name { font-size: 14px; font-weight: 600; }
+    .sector-bar-bg { background: #2b3139; height: 6px; border-radius: 3px; margin-top: 8px; width: 100%; }
+    .sector-bar-fill { height: 100%; border-radius: 3px; background: #00c805; }
+    .sector-val-group { text-align: right; margin-left: 15px; }
+    .sector-val { font-size: 13px; color: #848e9c; display: block; }
+    .sector-pct { font-size: 13px; color: #00c805; font-weight: 600; }
+
+    /* Colors */
+    .pos { color: #00c805; }
+    .neg { color: #ff3b3b; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- DATA FETCHING ---
+# --- HELPER DATA ---
 @st.cache_data(ttl=60)
-def get_market_data(ticker, period="1mo", interval="1d"):
-    df = yf.download(ticker, period=period, interval=interval, progress=False)
+def get_nifty_chart():
+    df = yf.download("^NSEI", period="1mo", interval="1d", progress=False)
     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
     return df
 
-# --- MAIN DASHBOARD LAYOUT ---
-st.write("Indian Stock Market Overview powered by Yahoo Finance")
+# --- UI LAYOUT ---
 
-# TOP ROW: MAIN INDICES
-t1, t2 = st.columns(2)
+st.markdown("<p style='color:#848e9c; font-size:14px; margin-bottom:20px;'>Indian Stock Market Overview powered by Yahoo Finance</p>", unsafe_allow_html=True)
 
-indices = [("^NSEI", "NIFTY 50"), ("^BSESN", "SENSEX")]
-for i, col in enumerate([t1, t2]):
-    data = get_market_data(indices[i][0], period="2d", interval="1m")
-    if not data.empty:
-        curr = data['Close'].iloc[-1]
-        prev = data['Close'].iloc[0]
-        diff = curr - prev
-        pct = (diff / prev) * 100
-        cls = "positive" if diff >= 0 else "negative"
-        sign = "+" if diff >= 0 else ""
-        
-        col.markdown(f"""
-        <div class="metric-card">
-            <div class="index-title"><span style="background:#00c80522; padding:4px; border-radius:4px;">📊</span> {indices[i][1]} <span style="margin-left:auto; background:#00c80522; color:#00c805; padding:2px 8px; border-radius:6px; font-size:12px;">↗ {sign}{round(pct,2)}%</span></div>
-            <div class="index-value">{round(curr,2):,}</div>
-            <div class="index-delta {cls}">{sign}{round(diff,2)}</div>
-        </div>
-        """, unsafe_allow_html=True)
+# ROW 1: TOP INDICES
+c1, c2 = st.columns(2)
 
-# SECOND ROW: SMALL STATS
+with c1:
+    st.markdown("""
+    <div class="glass-card">
+        <span class="pct-badge">↗ +0.15%</span>
+        <div class="icon-box">📊</div> <span class="index-label">NIFTY 50</span>
+        <div class="index-price">22,713.10</div>
+        <div class="index-delta pos">+33.70</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c2:
+    st.markdown("""
+    <div class="glass-card">
+        <span class="pct-badge">↗ +0.25%</span>
+        <div class="icon-box">📈</div> <span class="index-label">SENSEX</span>
+        <div class="index-price">73,319.55</div>
+        <div class="index-delta pos">+185.23</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ROW 2: SMALL STATS
 s1, s2, s3, s4 = st.columns(4)
-stats = [
-    ("Total Volume", "9.22 Cr"),
-    ("Market Cap", "509.34 L Cr"),
-    ("Advancing", "32"),
-    ("Declining", "18")
-]
+stats = [("Total Volume", "9.22 Cr"), ("Market Cap", "5093470.86 Cr"), ("Advancing", "5"), ("Declining", "3")]
 for i, col in enumerate([s1, s2, s3, s4]):
     col.markdown(f"""
-    <div class="stat-card">
+    <div class="glass-card" style="padding: 20px;">
         <div class="stat-label">{stats[i][0]}</div>
         <div class="stat-value">{stats[i][1]}</div>
     </div>
     """, unsafe_allow_html=True)
 
-st.write("") # Spacer
+# ROW 3: CHART & SECTOR PERFORMANCE
+st.write("")
+l_col, r_col = st.columns([2.2, 1])
 
-# THIRD ROW: MAIN CHART & SECTORS
-c_left, c_right = st.columns([2, 1])
-
-with c_left:
-    st.markdown('<div class="metric-card" style="height:550px">', unsafe_allow_html=True)
+with l_col:
+    st.markdown("""
+    <div class="glass-card" style="height: 600px;">
+        <span class="pct-badge" style="margin-top:5px;">↗ +0.15%</span>
+        <div class="icon-box" style="padding:6px;">📊</div> <span class="index-label">NIFTY 50</span>
+        <div class="index-price" style="font-size:24px; margin-top:5px;">22,713.10</div>
+        
+        <div class="time-btn-container">
+            <button class="time-btn">1D</button>
+            <button class="time-btn">5D</button>
+            <button class="time-btn active">1M</button>
+            <button class="time-btn">3M</button>
+            <button class="time-btn">6M</button>
+            <button class="time-btn">1Y</button>
+        </div>
+    """, unsafe_allow_html=True)
     
-    # Chart Header
-    ch1, ch2 = st.columns([1, 2])
-    ch1.markdown(f"**NIFTY 50**<br><span style='font-size:20px; font-weight:700;'>22,713.10</span> <span class='positive' style='font-size:12px;'>↗ +0.15%</span>", unsafe_allow_html=True)
-    
-    # Time Selectors
-    time_period = ch2.segmented_control("Period", options=["1D", "5D", "1M", "3M", "6M", "1Y"], default="1M", label_visibility="collapsed")
-    
-    # Fetch Nifty Chart Data
-    period_map = {"1D":"1d", "5D":"5d", "1M":"1mo", "3M":"3mo", "6M":"6mo", "1Y":"1y"}
-    chart_data = get_market_data("^NSEI", period=period_map[time_period], interval="1h" if time_period != "1D" else "5m")
-    
-    # Plotly Smooth Area Chart
+    # Large Chart
+    df = get_nifty_chart()
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=chart_data.index, y=chart_data['Close'],
-        fill='tozeroy', fillcolor='rgba(0, 200, 5, 0.1)',
+        x=df.index, y=df['Close'], 
+        fill='tozeroy', fillcolor='rgba(0, 200, 5, 0.05)',
         line=dict(color='#00c805', width=3),
-        mode='lines',
         hovertemplate="Price: ₹%{y:,.2f}<extra></extra>"
     ))
     fig.update_layout(
         template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=0, r=0, t=20, b=0), height=400,
-        xaxis=dict(showgrid=False, showline=False, showticklabels=True),
-        yaxis=dict(showgrid=True, gridcolor='#21262c', side="right"),
+        margin=dict(l=0, r=0, t=20, b=0), height=380,
+        xaxis=dict(showgrid=False, showline=False, color="#848e9c"),
+        yaxis=dict(showgrid=True, gridcolor='#21262c', position=1, side="left", color="#848e9c")
     )
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-with c_right:
-    st.markdown('<div class="metric-card" style="height:550px">', unsafe_allow_html=True)
-    st.markdown("🕒 **Sector Performance**", unsafe_allow_html=True)
-    st.markdown("<span style='font-size:12px; color:#848e9c;'>● 5 gaining  ● 6 declining</span>", unsafe_allow_html=True)
-    st.write("")
+with r_col:
+    st.markdown("""
+    <div class="glass-card" style="height: 600px;">
+        <div class="sector-title">⌛ Sector Performance</div>
+        <div class="sector-summary">🟢 5 gaining &nbsp;🔴 6 declining</div>
+    """, unsafe_allow_html=True)
     
     sectors = [
-        ("IT", 2.60, "💻"),
-        ("Realty", 1.07, "🏢"),
-        ("Metal", 0.39, "🔨"),
-        ("FMCG", 0.21, "🛒"),
-        ("Banking", 0.19, "🏦"),
-        ("Auto", -0.45, "🚗"),
-        ("Pharma", -0.82, "💊")
+        ("IT", "30,441.45", "+2.60%", 90, "💻"),
+        ("Realty", "672.10", "+1.07%", 40, "🏢"),
+        ("Metal", "11,456.60", "+0.39%", 30, "🔨"),
+        ("FMCG", "46,232.15", "+0.21%", 15, "🛒"),
+        ("Banking", "51,548.75", "+0.19%", 12, "🏦")
     ]
     
-    for name, chg, icon in sectors:
-        color = "#00c805" if chg > 0 else "#ff3b3b"
-        width = min(abs(chg) * 20, 100) # Scaling for visual
+    for name, val, pct, width, icon in sectors:
         st.markdown(f"""
         <div class="sector-row">
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span style="background:#2b3139; padding:8px; border-radius:8px;">{icon}</span>
-                <span style="font-weight:600; font-size:14px;">{name}</span>
+            <div class="sector-icon">{icon}</div>
+            <div class="sector-info">
+                <span class="sector-name">{name}</span>
+                <div class="sector-bar-bg"><div class="sector-bar-fill" style="width: {width}%;"></div></div>
             </div>
-            <div style="text-align:right;">
-                <span style="font-size:12px; font-weight:700; color:{color};">{"+" if chg>0 else ""}{chg}%</span>
-                <div class="progress-bg"><div class="progress-fill" style="width:{width}%; background-color:{color};"></div></div>
+            <div class="sector-val-group">
+                <span class="sector-val">{val}</span>
+                <span class="sector-pct">{pct}</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# --- AI ANALYZER TAB (Optional Sidebar integration) ---
-with st.sidebar:
-    st.title("🎯 AI Analyzer")
-    st.info("Enter a stock symbol below to get AI Buy/Sell signals with Target & Stop Loss.")
-    symbol = st.text_input("Symbol (e.g. RELIANCE)").upper()
-    if symbol:
-        st.write(f"Analyzing {symbol}...")
-        # (Insert the AI Logic from previous code here if needed)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
