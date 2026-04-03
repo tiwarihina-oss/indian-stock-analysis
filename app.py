@@ -1,110 +1,112 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 import plotly.graph_objects as go
 
-# Set page to wide mode
-st.set_page_config(page_title="AI Indian Stock Analyzer", layout="wide")
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="AI Indian Stock Signal", layout="wide")
 
-st.title("🏹 AI Indian Stock Signal Pro")
+st.title("📈 AI Indian Stock Signal Pro")
+st.caption("Stable Version - Powered by Real-time NSE/BSE Data")
 
-# Initialize Watchlist in session state
+# --- INDICATOR CALCULATIONS (Manual to avoid errors) ---
+def calculate_indicators(df):
+    # Calculate EMA
+    df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    
+    # Calculate RSI
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    return df
+
+# --- SESSION STATE FOR WATCHLIST ---
 if 'watchlist' not in st.session_state:
-    st.session_state.watchlist = ['RELIANCE.NS', 'TCS.NS', 'SBIN.NS']
+    st.session_state.watchlist = ['RELIANCE.NS', 'TCS.NS', 'INFY.NS']
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("📊 Watchlist")
-    new_symbol = st.text_input("Enter Symbol (e.g. INFY, TATAMOTORS)").upper()
-    exchange = st.selectbox("Exchange", ["NSE", "BSE"])
+    st.header("🔍 Search Stock")
+    ticker_input = st.text_input("Symbol (e.g., SBIN, TATAMOTORS)").upper()
+    exch = st.radio("Exchange", ["NSE", "BSE"])
     
-    if st.button("➕ Add Stock"):
-        if new_symbol:
-            suffix = ".NS" if exchange == "NSE" else ".BO"
-            full_symbol = f"{new_symbol}{suffix}"
-            if full_symbol not in st.session_state.watchlist:
-                st.session_state.watchlist.append(full_symbol)
+    if st.button("Add to Watchlist"):
+        if ticker_input:
+            suffix = ".NS" if exch == "NSE" else ".BO"
+            full_ticker = ticker_input + suffix
+            if full_ticker not in st.session_state.watchlist:
+                st.session_state.watchlist.append(full_ticker)
                 st.rerun()
 
-    selected_stock = st.selectbox("Analyze Stock:", st.session_state.watchlist)
+    selected_stock = st.selectbox("Select from Watchlist", st.session_state.watchlist)
     
-    if st.button("🗑️ Remove Selected"):
-        if selected_stock in st.session_state.watchlist:
-            st.session_state.watchlist.remove(selected_stock)
-            st.rerun()
+    if st.button("Remove Selected"):
+        st.session_state.watchlist.remove(selected_stock)
+        st.rerun()
 
-# --- DATA PROCESSING ---
-def get_analysis(ticker):
-    try:
-        # Fetch data
-        df = yf.download(ticker, period="1y", interval="1d", progress=False)
-        
-        if df.empty:
-            return None
-
-        # Fix for yfinance MultiIndex columns
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
-        # Technical Indicators
-        df['RSI'] = ta.rsi(df['Close'], length=14)
-        df['EMA20'] = ta.ema(df['Close'], length=20)
-        df['EMA50'] = ta.ema(df['Close'], length=50)
-        
-        # Get latest values
-        latest_price = float(df['Close'].iloc[-1])
-        latest_rsi = float(df['RSI'].iloc[-1])
-        ema20_val = float(df['EMA20'].iloc[-1])
-        ema50_val = float(df['EMA50'].iloc[-1])
-        
-        # AI Logic
-        signal = "HOLD"
-        suggestion = "No clear trend. Wait for RSI to enter extreme zones or EMA crossover."
-        
-        if latest_rsi < 35 or ema20_val > ema50_val:
-            signal = "BUY"
-            suggestion = "Indicators suggest bullish momentum. RSI is low or Golden Crossover detected."
-        elif latest_rsi > 70 or ema20_val < ema50_val:
-            signal = "SELL"
-            suggestion = "Indicators suggest bearish pressure. Overbought RSI or Death Crossover detected."
-
-        # Targets
-        entry = round(latest_price, 2)
-        target = round(entry * 1.05, 2) if signal == "BUY" else round(entry * 0.95, 2)
-        sl = round(entry * 0.97, 2) if signal == "BUY" else round(entry * 1.03, 2)
-        
-        return df, signal, entry, target, sl, suggestion
-    except Exception as e:
-        st.error(f"Error processing {ticker}: {e}")
-        return None
-
-# --- MAIN UI ---
+# --- MAIN APP LOGIC ---
 if selected_stock:
-    res = get_analysis(selected_stock)
-    if res:
-        df, signal, price, target, sl, suggestion = res
+    try:
+        # Fetch Data
+        data = yf.download(selected_stock, period="1y", interval="1d", progress=False)
         
-        # Display Metrics
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Current Price", f"₹{price}")
-        
-        # Signal Styling
-        color = "green" if signal == "BUY" else "red" if signal == "SELL" else "gray"
-        c2.markdown(f"### Signal: <span style='color:{color}'>{signal}</span>", unsafe_allow_html=True)
-        
-        c3.metric("Target", f"₹{target}")
-        c4.metric("Stop Loss", f"₹{sl}")
-        
-        st.info(f"**AI Logic:** {suggestion}")
+        if data.empty:
+            st.error("No data found. Please check the ticker symbol.")
+        else:
+            # Clean data (fix for yfinance multi-index)
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(0)
+            
+            # Calculate Technicals
+            df = calculate_indicators(data)
+            
+            # Get latest values for AI Signal
+            last_row = df.iloc[-1]
+            prev_row = df.iloc[-2]
+            curr_price = float(last_row['Close'])
+            rsi_val = float(last_row['RSI'])
+            ema20 = float(last_row['EMA20'])
+            ema50 = float(last_row['EMA50'])
 
-        # Chart
-        fig = go.Figure()
-        fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"))
-        fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], name="EMA 20", line=dict(color='orange')))
-        fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], name="EMA 50", line=dict(color='blue')))
-        fig.update_layout(template="plotly_dark", height=500, margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig, use_container_width=True)
-        
-    else:
-        st.warning("No data found for this symbol. Check if the symbol is correct.")
+            # AI Signal Logic
+            signal = "HOLD"
+            color = "#f0f0f0" # gray
+            suggestion = "Market is neutral. Avoid fresh entry."
+
+            if rsi_val < 35 or (prev_row['EMA20'] < prev_row['EMA50'] and ema20 > ema50):
+                signal = "BUY"
+                color = "#00FF00" # green
+                suggestion = "Bullish momentum detected. Price is showing strength."
+            elif rsi_val > 70 or (prev_row['EMA20'] > prev_row['EMA50'] and ema20 < ema50):
+                signal = "SELL"
+                color = "#FF4B4B" # red
+                suggestion = "Overbought conditions. High risk of profit booking."
+
+            # Entry/Target/SL
+            entry_price = round(curr_price, 2)
+            target = round(entry_price * 1.05, 2) if signal != "SELL" else round(entry_price * 0.95, 2)
+            stop_loss = round(entry_price * 0.97, 2) if signal != "SELL" else round(entry_price * 1.03, 2)
+
+            # Display UI
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Current Price", f"₹{entry_price}")
+            m2.markdown(f"### <span style='color:{color}'>{signal}</span>", unsafe_allow_html=True)
+            m3.metric("Target", f"₹{target}")
+            m4.metric("Stop Loss", f"₹{stop_loss}")
+
+            st.info(f"**AI Suggestion:** {suggestion}")
+
+            # Candlestick Chart
+            fig = go.Figure()
+            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"))
+            fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], name="EMA 20", line=dict(color='orange', width=1.5)))
+            fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], name="EMA 50", line=dict(color='blue', width=1.5)))
+            
+            fig.update_layout(template="plotly_dark", height=600, margin=dict(l=10, r=10, t=30, b=10), xaxis_rangeslider_visible=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Something went wrong: {e}")
